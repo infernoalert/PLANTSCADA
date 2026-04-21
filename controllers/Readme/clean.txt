@@ -1,0 +1,5 @@
+Clean action (placeholder)
+
+This file is loaded into the Readme window when you open it from the toolbar.
+Add or edit .txt files under controllers/Readme/ and pass the filename to
+navigation_controller.open_content(view, "yourfile.txt") from any controller.
