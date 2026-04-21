@@ -1,0 +1,7 @@
+The Sanity Check: We will run a quick check to see if Python and pip are actually installed and recognized by your VM.
+
+The Sandbox Construction: I will guide you through creating that Virtual Environment (venv) so we can safely install packages without touching your company's global IT setup.
+
+The Supply Run: We will activate that sandbox and use pip to grab our tools (Pandas and your UI library).
+
+The Data Discovery: Once the environment is secure, we will map out exactly what the engine needs to do with your data.
