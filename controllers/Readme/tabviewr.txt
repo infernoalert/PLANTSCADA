@@ -2,6 +2,10 @@ TabViewr
 
 Use the second search box (row labeled 2) to enter a tag that appears in the Equipment column of input/EQPARAM.csv, then click TabViewr.
 
-The tool exports one CSV per sheet where a Tab_v{v}_h{h}_Title row defines the file name (from the Value column) and Status_v{v}_h{h}_r*_c* rows fill the grid. Duplicate cell positions are joined with ||.
+Optional input/VARIABLE.csv: Tag Name (or Tagname) and Comment columns. When an EQPARAM Status row has Is Tag true, the grid cell shows the VARIABLE Comment for that tag (Value is the tag key); if VARIABLE is missing or the tag is not found, the raw Value is used.
+
+When Is Tag is false, each cell shows Name :: Value (e.g. Status_v1_h1_r1_c1_Title :: Process Alarms & Status).
+
+The tool exports one CSV per sheet where a Tab_v{v}_h{h}_Title row defines the file name (from the Value column) and Status_v{v}_h{h}_r*_c* rows fill the grid (data rows only; no c1/c2 header line). Duplicate cell positions are joined with ||.
 
 Edit this file to document your project-specific conventions.

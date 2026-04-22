@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import DefaultDict, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -28,7 +28,7 @@ class EqparamProcessingError(Exception):
         self.message = message
 
 
-def _read_eqparam_csv(path: Path) -> pd.DataFrame:
+def _read_csv_with_encodings(path: Path) -> pd.DataFrame:
     last_err: Exception | None = None
     for encoding in ("utf-8-sig", "utf-8", "latin-1"):
         try:
@@ -40,12 +40,74 @@ def _read_eqparam_csv(path: Path) -> pd.DataFrame:
     raise EqparamProcessingError(f"Could not decode CSV (tried utf-8-sig, utf-8, latin-1): {last_err}")
 
 
+def _read_eqparam_csv(path: Path) -> pd.DataFrame:
+    return _read_csv_with_encodings(path)
+
+
 def _resolve_column_ci(columns: pd.Index, logical_name: str) -> str:
     want = logical_name.lower()
     for col in columns:
         if str(col).strip().lower() == want:
             return str(col)
     raise EqparamProcessingError(f'Missing required column "{logical_name}" (case-insensitive match).')
+
+
+def _parse_is_tag(value: object) -> bool:
+    if value is None:
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, bool):
+        return value
+    s = str(value).strip().upper()
+    return s in ("TRUE", "1", "YES", "Y", "T")
+
+
+def _resolve_variable_tag_column(columns: pd.Index) -> str:
+    for logical in ("Tag Name", "Tagname"):
+        try:
+            return _resolve_column_ci(columns, logical)
+        except EqparamProcessingError:
+            continue
+    raise EqparamProcessingError('VARIABLE.csv: missing "Tag Name" or "Tagname" column.')
+
+
+def _load_tag_comment_map(variable_path: Path) -> Dict[str, str]:
+    """First Tag Name wins. Returns empty dict if VARIABLE.csv is absent."""
+    if not variable_path.is_file():
+        return {}
+    df = _read_csv_with_encodings(variable_path)
+    if df.empty:
+        return {}
+    tag_col = _resolve_variable_tag_column(df.columns)
+    comment_col = _resolve_column_ci(df.columns, "Comment")
+    out: Dict[str, str] = {}
+    for _, row in df.iterrows():
+        tag = _cell_str(row[tag_col]).strip()
+        if not tag or tag in out:
+            continue
+        out[tag] = _cell_str(row[comment_col]).strip()
+    return out
+
+
+def _tabviewr_status_cell_text(
+    row: pd.Series,
+    *,
+    name_col: str,
+    value_col: str,
+    is_tag_col: str,
+    tag_to_comment: Dict[str, str],
+) -> str:
+    name = _cell_str(row[name_col]).strip()
+    value = _cell_str(row[value_col]).strip()
+    if _parse_is_tag(row[is_tag_col]):
+        if not value:
+            return ""
+        return tag_to_comment.get(value, value)
+    return f"{name} :: {value}" if (name or value) else ""
 
 
 def _cell_str(value: object) -> str:
@@ -59,12 +121,11 @@ def _cell_str(value: object) -> str:
     return str(value)
 
 
-def process_eqparam_dedupe(path: Path, needle: str) -> Tuple[List[str], List[List[str]]]:
+def process_eqparam_equipment_filter(path: Path, needle: str) -> Tuple[List[str], List[List[str]]]:
     """
-    Read EQPARAM-style CSV. Output **only** rows where both ``Equipment`` and ``Name``
-    contain ``needle`` (substring, case-insensitive); among those, drop duplicate
-    ``(Equipment, Name)`` pairs keeping the first. Rows that do not match both are
-    omitted from the output (not written).
+    Read EQPARAM-style CSV. Output **only** rows whose ``Equipment`` column contains
+    ``needle`` (substring, case-insensitive). All original columns are preserved; no
+    deduplication.
     """
     needle = needle.strip()
     if not needle:
@@ -78,14 +139,8 @@ def process_eqparam_dedupe(path: Path, needle: str) -> Tuple[List[str], List[Lis
         return [str(c) for c in df.columns.tolist()], []
 
     equip_col = _resolve_column_ci(df.columns, "Equipment")
-    name_col = _resolve_column_ci(df.columns, "Name")
-
-    eq_mask = df[equip_col].astype(str).str.contains(needle, case=False, na=False, regex=False)
-    name_mask = df[name_col].astype(str).str.contains(needle, case=False, na=False, regex=False)
-    both_mask = eq_mask & name_mask
-
-    matched = df.loc[both_mask]
-    out = matched.drop_duplicates(subset=[equip_col, name_col], keep="first")
+    mask = df[equip_col].astype(str).str.contains(needle, case=False, na=False, regex=False)
+    out = df.loc[mask]
 
     header = [str(c) for c in out.columns.tolist()]
     rows = [[_cell_str(v) for v in row] for row in out.to_numpy()]
@@ -101,12 +156,20 @@ def _slug_sheet_stem(raw_title: str, v: int, h: int) -> str:
     return s[:80]
 
 
-def process_eqparam_tabviewr(path: Path, needle: str) -> List[Tuple[str, List[str], List[List[str]]]]:
+def process_eqparam_tabviewr(
+    path: Path,
+    needle: str,
+    variable_path: Optional[Path] = None,
+) -> List[Tuple[str, List[List[str]]]]:
     """
     Filter EQPARAM rows by Equipment substring; for each (v, h) with Tab_v{v}_h{h}_Title
     (sheet name from Value) and Status_v{v}_h{h}_r*c* cells, build a dense grid. Multiple
     values for the same (r, c) are joined with ``||``.
-    Returns list of (filename_stem_without_csv, header, rows).
+
+    Status cell text: if ``Is Tag`` is true, output VARIABLE.csv ``Comment`` for ``Value``
+    as Tag Name (else ``Value``); if false, output ``Name :: Value``.
+
+    Returns list of (filename_stem_without_csv, rows) — no column header row; data only.
     """
     needle = needle.strip()
     if not needle:
@@ -122,6 +185,10 @@ def process_eqparam_tabviewr(path: Path, needle: str) -> List[Tuple[str, List[st
     equip_col = _resolve_column_ci(df.columns, "Equipment")
     name_col = _resolve_column_ci(df.columns, "Name")
     value_col = _resolve_column_ci(df.columns, "Value")
+    is_tag_col = _resolve_column_ci(df.columns, "Is Tag")
+
+    var_path = variable_path if variable_path is not None else path.parent / "VARIABLE.csv"
+    tag_to_comment = _load_tag_comment_map(var_path)
 
     eq_mask = df[equip_col].astype(str).str.contains(needle, case=False, na=False, regex=False)
     filtered = df.loc[eq_mask]
@@ -147,9 +214,16 @@ def process_eqparam_tabviewr(path: Path, needle: str) -> List[Tuple[str, List[st
         if m:
             v, h = int(m.group(1)), int(m.group(2))
             r, c = int(m.group(3)), int(m.group(4))
-            cell_lists[(v, h)][(r, c)].append(_cell_str(row[value_col]))
+            text = _tabviewr_status_cell_text(
+                row,
+                name_col=name_col,
+                value_col=value_col,
+                is_tag_col=is_tag_col,
+                tag_to_comment=tag_to_comment,
+            )
+            cell_lists[(v, h)][(r, c)].append(text)
 
-    sheets: List[Tuple[str, List[str], List[List[str]]]] = []
+    sheets: List[Tuple[str, List[List[str]]]] = []
     used_stems: set[str] = set()
 
     for (v, h), grid in sorted(cell_lists.items()):
@@ -169,7 +243,6 @@ def process_eqparam_tabviewr(path: Path, needle: str) -> List[Tuple[str, List[st
         min_r, max_r = min(rs), max(rs)
         min_c, max_c = min(cs), max(cs)
 
-        header = [f"c{j}" for j in range(min_c, max_c + 1)]
         rows: List[List[str]] = []
         for r in range(min_r, max_r + 1):
             row_out: List[str] = []
@@ -178,6 +251,6 @@ def process_eqparam_tabviewr(path: Path, needle: str) -> List[Tuple[str, List[st
                 row_out.append("||".join(parts) if parts else "")
             rows.append(row_out)
 
-        sheets.append((stem, header, rows))
+        sheets.append((stem, rows))
 
     return sheets

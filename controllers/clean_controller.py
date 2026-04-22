@@ -19,7 +19,7 @@ def handle(search_text: str, view: AppView) -> None:
 
     view.set_status("Processing...")
     try:
-        header, rows = processor.process_eqparam_dedupe(EQPARAM_CSV, search_text)
+        header, rows = processor.process_eqparam_equipment_filter(EQPARAM_CSV, search_text)
         written = write_csv_to_output("cleanEqparam.csv", rows, header=header)
         view.set_status("Wrote cleanEqparam.csv")
         print(f"{EQPARAM_CSV} -> {written}, rows={len(rows)}")

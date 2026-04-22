@@ -1,5 +1,7 @@
-Clean action (placeholder)
+Clean
 
-This file is loaded into the Readme window when you open it from the toolbar.
-Add or edit .txt files under controllers/Readme/ and pass the filename to
-navigation_controller.open_content(view, "yourfile.txt") from any controller.
+Reads input/EQPARAM.csv and writes output/cleanEqparam.csv with every row whose
+Equipment column contains your search text (case-insensitive). All columns from
+the source are kept for those rows; rows that do not match are not included.
+
+Enter a tag such as LU4107 in the top search box, then click Clean.

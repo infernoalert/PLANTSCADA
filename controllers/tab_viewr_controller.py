@@ -9,6 +9,7 @@ from services.csv_output_service import write_csv_to_output
 from ui import AppView
 
 _EQPARAM = Path(__file__).resolve().parent.parent / "input" / "EQPARAM.csv"
+_VARIABLE = Path(__file__).resolve().parent.parent / "input" / "VARIABLE.csv"
 
 
 def handle(search_text: str, view: AppView) -> None:
@@ -18,12 +19,12 @@ def handle(search_text: str, view: AppView) -> None:
 
     view.set_status("Processing...")
     try:
-        sheets = processor.process_eqparam_tabviewr(_EQPARAM, search_text)
+        sheets = processor.process_eqparam_tabviewr(_EQPARAM, search_text, _VARIABLE)
         if not sheets:
             view.set_status("No Tab/Status sheets to export")
             return
-        for stem, header, rows in sheets:
-            write_csv_to_output(f"{stem}.csv", rows, header=header)
+        for stem, rows in sheets:
+            write_csv_to_output(f"{stem}.csv", rows, header=None)
         view.set_status(f"Wrote {len(sheets)} sheet(s)")
         print(f"TabViewr: wrote {len(sheets)} file(s) for search={search_text!r}")
     except processor.EqparamProcessingError as exc:
