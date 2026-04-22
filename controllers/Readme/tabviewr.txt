@@ -1,0 +1,7 @@
+TabViewr
+
+Use the second search box (row labeled 2) to enter a tag that appears in the Equipment column of input/EQPARAM.csv, then click TabViewr.
+
+The tool exports one CSV per sheet where a Tab_v{v}_h{h}_Title row defines the file name (from the Value column) and Status_v{v}_h{h}_r*_c* rows fill the grid. Duplicate cell positions are joined with ||.
+
+Edit this file to document your project-specific conventions.
