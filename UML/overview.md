@@ -16,7 +16,7 @@ The project is a **local desktop utility** for working with **SCADA CSV exports*
 | Area | Behavior |
 |------|------------|
 | **Clean** | Reads `input/EQPARAM.csv`, keeps only rows whose `Equipment` column contains the search string (case-insensitive substring), writes all matching columns to `output/cleanEqparam.csv` via the CSV output service (no deduplication). |
-| **TabViewr** | Uses a **second** search box on its own row. Filters `input/EQPARAM.csv` by `Equipment`; builds sheets from `Tab_*_Title` / `Status_*_r*c*`; grid cells use `Is Tag`: if true, looks up `Value` in optional `input/VARIABLE.csv` (`Tag Name` → `Comment`), else `Name :: Value`; duplicate `(r,c)` joined with `||`. Output CSVs have data rows only (no `c1`/`c2` header). |
+| **TabViewr** | Uses a **second** search box on its own row. Filters `input/EQPARAM.csv` by `Equipment`; builds sheets from `Tab_*_Title` / `Status_*_r*c*`; grid cells use `Is Tag`: if true, outputs `Name :: Value ==` resolved text from optional `input/VARIABLE.csv` (`Tag Name` → `Comment`; if VARIABLE is missing or the tag is unknown, resolved is `Value`), else `Name :: Value`; duplicate `(r,c)` joined with `||`. Output CSVs have data rows only (no `c1`/`c2` header). |
 | **Readme** | Row 1 link opens help from `controllers/Readme/clean.txt`. Row 2 (TabViewr) link opens `controllers/Readme/tabviewr.txt`. |
 
 ## How we develop it (architecture and conventions)

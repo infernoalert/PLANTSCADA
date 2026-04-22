@@ -17,7 +17,7 @@ def handle(search_text: str, view: AppView) -> None:
         view.set_status("Enter a search tag")
         return
 
-    view.set_status("Processing...")
+    view.set_status("Wait...")
     try:
         header, rows = processor.process_eqparam_equipment_filter(EQPARAM_CSV, search_text)
         written = write_csv_to_output("cleanEqparam.csv", rows, header=header)

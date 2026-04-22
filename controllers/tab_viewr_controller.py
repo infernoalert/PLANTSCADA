@@ -17,7 +17,7 @@ def handle(search_text: str, view: AppView) -> None:
         view.set_status("Enter a search tag")
         return
 
-    view.set_status("Processing...")
+    view.set_status("Wait...")
     try:
         sheets = processor.process_eqparam_tabviewr(_EQPARAM, search_text, _VARIABLE)
         if not sheets:
@@ -25,7 +25,7 @@ def handle(search_text: str, view: AppView) -> None:
             return
         for stem, rows in sheets:
             write_csv_to_output(f"{stem}.csv", rows, header=None)
-        view.set_status(f"Wrote {len(sheets)} sheet(s)")
+        view.set_status(f"Wrote {len(sheets)} file(s)")
         print(f"TabViewr: wrote {len(sheets)} file(s) for search={search_text!r}")
     except processor.EqparamProcessingError as exc:
         view.set_status(exc.message)

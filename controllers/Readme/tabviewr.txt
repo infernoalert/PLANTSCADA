@@ -2,7 +2,7 @@ TabViewr
 
 Use the second search box (row labeled 2) to enter a tag that appears in the Equipment column of input/EQPARAM.csv, then click TabViewr.
 
-Optional input/VARIABLE.csv: Tag Name (or Tagname) and Comment columns. When an EQPARAM Status row has Is Tag true, the grid cell shows the VARIABLE Comment for that tag (Value is the tag key); if VARIABLE is missing or the tag is not found, the raw Value is used.
+Optional input/VARIABLE.csv: Tag Name (or Tagname) and Comment columns. When an EQPARAM Status row has Is Tag true, the grid cell shows Name :: Value == resolved: Name is the full Status_v*_h*_r*_c*_... address, Value is the tag key, and resolved is the VARIABLE Comment when present; if VARIABLE is missing or the tag is not found, resolved is the raw Value (so the cell reads Name :: Tag == Tag).
 
 When Is Tag is false, each cell shows Name :: Value (e.g. Status_v1_h1_r1_c1_Title :: Process Alarms & Status).
 

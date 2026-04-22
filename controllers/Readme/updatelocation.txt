@@ -1,0 +1,15 @@
+updateLocation
+
+Use row 3 to enter an input file stem (for example: safety), then click updateLocation.
+
+The tool reads input/<name>.csv and checks each cell for Status_v..._rX_cY_... tokens.
+If the embedded rX/cY does not match the cell's actual position (1-based row/column),
+it rewrites only rX/cY and keeps the rest of the text unchanged.
+
+A corrected file is written to output/update<name>.csv.
+
+Examples:
+- input cell at row 4, col 2: Status_v1_h3_r4_c1_Alarm
+- output becomes: Status_v1_h3_r4_c2_Alarm
+
+Non-Status text is not modified.

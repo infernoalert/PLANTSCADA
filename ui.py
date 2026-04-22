@@ -13,7 +13,7 @@ from typing import Callable, Optional
 
 
 class AppView:
-    """Row 1: Clean/Readme + shared search; row 2: TabViewr + its own search; status below."""
+    """Row 1: Clean; row 2: TabViewr; row 3: updateLocation; status below."""
 
     def __init__(self) -> None:
         self._root = tk.Tk()
@@ -34,7 +34,7 @@ class AppView:
             row=1, column=0, sticky="ne", padx=(6, 2), pady=(0, 4)
         )
         ttk.Label(self._root, text="3", font=self._line_font, foreground=self._line_muted).grid(
-            row=2, column=0, sticky="ne", padx=(6, 2), pady=(0, 8)
+            row=2, column=0, sticky="ne", padx=(6, 2), pady=(0, 4)
         )
 
         self._search_var = tk.StringVar()
@@ -84,14 +84,40 @@ class AppView:
         self._tabviewr_readme_label.bind("<Enter>", self._on_tabviewr_readme_enter)
         self._tabviewr_readme_label.bind("<Leave>", self._on_tabviewr_readme_leave)
 
-        self._status_var = tk.StringVar(value="Ready")
+        self._update_location_search_var = tk.StringVar()
+        self._update_location_entry = ttk.Entry(self._root, textvariable=self._update_location_search_var)
+        self._update_location_entry.grid(row=2, column=1, sticky="ew", padx=(0, 4), pady=(0, 4))
+
+        self._update_location_btn = ttk.Button(
+            self._root, text="updateLocation", command=self._handle_update_location
+        )
+        self._update_location_btn.grid(row=2, column=2, sticky="w", padx=4, pady=(0, 4))
+
+        self._update_location_readme_label = tk.Label(
+            self._root,
+            text="Readme",
+            fg=self._readme_link_fg,
+            cursor="hand2",
+            font=self._readme_font,
+            bd=0,
+            padx=0,
+            pady=0,
+        )
+        self._update_location_readme_label.grid(row=2, column=3, sticky="w", padx=(4, 8), pady=(0, 4))
+        self._update_location_readme_label.bind("<Button-1>", self._handle_update_location_readme_click)
+        self._update_location_readme_label.bind("<Enter>", self._on_update_location_readme_enter)
+        self._update_location_readme_label.bind("<Leave>", self._on_update_location_readme_leave)
+
+        self._status_var = tk.StringVar(value="Wait...")
         self._status = ttk.Label(self._root, textvariable=self._status_var)
-        self._status.grid(row=2, column=1, columnspan=3, sticky="ew", padx=(0, 8), pady=(0, 8))
+        self._status.grid(row=3, column=1, columnspan=3, sticky="ew", padx=(0, 8), pady=(0, 8))
 
         self._on_clean: Optional[Callable[[], None]] = None
         self._on_readme_click: Optional[Callable[[], None]] = None
         self._on_tabviewr: Optional[Callable[[], None]] = None
         self._on_tabviewr_readme_click: Optional[Callable[[], None]] = None
+        self._on_update_location: Optional[Callable[[], None]] = None
+        self._on_update_location_readme_click: Optional[Callable[[], None]] = None
 
     @property
     def root(self) -> tk.Tk:
@@ -105,6 +131,10 @@ class AppView:
         if self._on_tabviewr is not None:
             self._on_tabviewr()
 
+    def _handle_update_location(self) -> None:
+        if self._on_update_location is not None:
+            self._on_update_location()
+
     def _handle_readme_click(self, _event: tk.Event[tk.Misc]) -> None:
         if self._on_readme_click is not None:
             self._on_readme_click()
@@ -112,6 +142,10 @@ class AppView:
     def _handle_tabviewr_readme_click(self, _event: tk.Event[tk.Misc]) -> None:
         if self._on_tabviewr_readme_click is not None:
             self._on_tabviewr_readme_click()
+
+    def _handle_update_location_readme_click(self, _event: tk.Event[tk.Misc]) -> None:
+        if self._on_update_location_readme_click is not None:
+            self._on_update_location_readme_click()
 
     def _on_readme_enter(self, _event: tk.Event[tk.Misc]) -> None:
         self._readme_label.configure(fg=self._readme_link_fg_hover)
@@ -125,11 +159,20 @@ class AppView:
     def _on_tabviewr_readme_leave(self, _event: tk.Event[tk.Misc]) -> None:
         self._tabviewr_readme_label.configure(fg=self._readme_link_fg)
 
+    def _on_update_location_readme_enter(self, _event: tk.Event[tk.Misc]) -> None:
+        self._update_location_readme_label.configure(fg=self._readme_link_fg_hover)
+
+    def _on_update_location_readme_leave(self, _event: tk.Event[tk.Misc]) -> None:
+        self._update_location_readme_label.configure(fg=self._readme_link_fg)
+
     def get_search_string(self) -> str:
         return self._search_var.get().strip()
 
     def get_tabviewr_search_string(self) -> str:
         return self._tabviewr_search_var.get().strip()
+
+    def get_update_location_search_string(self) -> str:
+        return self._update_location_search_var.get().strip()
 
     def set_status(self, text: str) -> None:
         self._status_var.set(text)
@@ -145,6 +188,12 @@ class AppView:
 
     def set_on_tabviewr_readme_click(self, callback: Callable[[], None]) -> None:
         self._on_tabviewr_readme_click = callback
+
+    def set_on_update_location(self, callback: Callable[[], None]) -> None:
+        self._on_update_location = callback
+
+    def set_on_update_location_readme_click(self, callback: Callable[[], None]) -> None:
+        self._on_update_location_readme_click = callback
 
     def run(self) -> None:
         self._root.mainloop()

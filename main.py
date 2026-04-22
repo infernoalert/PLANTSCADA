@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from controllers import clean_controller, navigation_controller, tab_viewr_controller
+from controllers import clean_controller, navigation_controller, tab_viewr_controller, update_location_controller
 from ui import AppView
 
 
@@ -15,6 +15,12 @@ def main() -> None:
     view.set_on_readme_click(lambda: navigation_controller.handle_readme(view))
     view.set_on_tabviewr(lambda: tab_viewr_controller.handle(view.get_tabviewr_search_string(), view))
     view.set_on_tabviewr_readme_click(lambda: navigation_controller.handle_tabviewr_readme(view))
+    view.set_on_update_location(
+        lambda: update_location_controller.handle(view.get_update_location_search_string(), view)
+    )
+    view.set_on_update_location_readme_click(
+        lambda: navigation_controller.handle_update_location_readme(view)
+    )
     view.run()
 
 

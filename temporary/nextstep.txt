@@ -5,3 +5,13 @@ The Sandbox Construction: I will guide you through creating that Virtual Environ
 The Supply Run: We will activate that sandbox and use pip to grab our tools (Pandas and your UI library).
 
 The Data Discovery: Once the environment is secure, we will map out exactly what the engine needs to do with your data.
+
+now what i want is a completly new controller - and new line including textbox - button and number 3 -lets call it eqipcreate conroller and button name Equip Create
+user tpe the filenae like safety and the controller read safety.csv from input folder 
+the output is forexample safetyequip.csv in the output folder 
+the output is similar to @input/Eqparam.csv as example
+Leave Cluster and Equipment empty for now 
+Name comes from the location, as example 
+Status_v1_h3_r1_c1_Title :: MCC Alarms   (MCC4105B 060-E-13990) which has ::  Status_v1_h3_r1_c1_Title is in name
+BUT LU4107_SA1_MC001_FG001 == MCC Safety Relay Failed to Trip
+which has == then the location which 

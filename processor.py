@@ -17,6 +17,10 @@ _STATUS_CELL_RE = re.compile(
     r"^Status_v(\d+)_h(\d+)_r(\d+)_c(\d+)_(.+)$",
     re.IGNORECASE,
 )
+_STATUS_TOKEN_RE = re.compile(
+    r"(Status_v(\d+)_h(\d+)_r)(\d+)(_c)(\d+)(_.+)",
+    re.IGNORECASE,
+)
 _WIN_INVALID_CHARS = re.compile(r'[<>:"/\\|?*]')
 
 
@@ -106,7 +110,8 @@ def _tabviewr_status_cell_text(
     if _parse_is_tag(row[is_tag_col]):
         if not value:
             return ""
-        return tag_to_comment.get(value, value)
+        resolved = tag_to_comment.get(value, value)
+        return f"{name} :: {value} == {resolved}"
     return f"{name} :: {value}" if (name or value) else ""
 
 
@@ -166,8 +171,9 @@ def process_eqparam_tabviewr(
     (sheet name from Value) and Status_v{v}_h{h}_r*c* cells, build a dense grid. Multiple
     values for the same (r, c) are joined with ``||``.
 
-    Status cell text: if ``Is Tag`` is true, output VARIABLE.csv ``Comment`` for ``Value``
-    as Tag Name (else ``Value``); if false, output ``Name :: Value``.
+    Status cell text: if ``Is Tag`` is true, output ``Name :: Value == resolved`` where
+    ``resolved`` is VARIABLE.csv ``Comment`` for ``Value`` as Tag Name (else ``Value``);
+    if false, output ``Name :: Value``.
 
     Returns list of (filename_stem_without_csv, rows) — no column header row; data only.
     """
@@ -254,3 +260,63 @@ def process_eqparam_tabviewr(
         sheets.append((stem, rows))
 
     return sheets
+
+
+def fix_status_locations_in_output_csv(input_path: Path, output_path: Path) -> Tuple[int, int]:
+    """
+    Rewrite embedded Status_v..._rX_cY_... tokens in each cell so r/c match the
+    cell's 1-based row/column position in the CSV.
+
+    Returns (checked_cells, updated_tokens).
+    """
+    if not input_path.is_file():
+        raise EqparamProcessingError(f"Missing file: {input_path}")
+
+    last_err: Exception | None = None
+    df: Optional[pd.DataFrame] = None
+    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            df = pd.read_csv(input_path, encoding=encoding, header=None, dtype=str, keep_default_na=False)
+            break
+        except UnicodeDecodeError as exc:
+            last_err = exc
+        except pd.errors.ParserError as exc:
+            raise EqparamProcessingError(f"Invalid CSV: {exc}") from exc
+    if df is None:
+        raise EqparamProcessingError(
+            f"Could not decode CSV (tried utf-8-sig, utf-8, latin-1): {last_err}"
+        )
+    if df.empty:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(output_path, index=False, header=False, encoding="utf-8")
+        return 0, 0
+
+    checked_cells = 0
+    updated_tokens = 0
+
+    for row_index in range(len(df.index)):
+        for col_index in range(len(df.columns)):
+            value = _cell_str(df.iat[row_index, col_index])
+            if not value:
+                continue
+            checked_cells += 1
+
+            actual_r = row_index + 1
+            actual_c = col_index + 1
+
+            def _replace(match: re.Match[str]) -> str:
+                nonlocal updated_tokens
+                existing_r = int(match.group(4))
+                existing_c = int(match.group(6))
+                if existing_r == actual_r and existing_c == actual_c:
+                    return match.group(0)
+                updated_tokens += 1
+                return f"{match.group(1)}{actual_r}{match.group(5)}{actual_c}{match.group(7)}"
+
+            rewritten = _STATUS_TOKEN_RE.sub(_replace, value)
+            if rewritten != value:
+                df.iat[row_index, col_index] = rewritten
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, index=False, header=False, encoding="utf-8")
+    return checked_cells, updated_tokens
