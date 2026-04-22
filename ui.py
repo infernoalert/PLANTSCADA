@@ -108,7 +108,7 @@ class AppView:
         self._update_location_readme_label.bind("<Enter>", self._on_update_location_readme_enter)
         self._update_location_readme_label.bind("<Leave>", self._on_update_location_readme_leave)
 
-        self._status_var = tk.StringVar(value="Wait...")
+        self._status_var = tk.StringVar(value="Ready")
         self._status = ttk.Label(self._root, textvariable=self._status_var)
         self._status.grid(row=3, column=1, columnspan=3, sticky="ew", padx=(0, 8), pady=(0, 8))
 

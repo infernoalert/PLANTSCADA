@@ -6,6 +6,10 @@ The tool reads input/<name>.csv and checks each cell for Status_v..._rX_cY_... t
 If the embedded rX/cY does not match the cell's actual position (1-based row/column),
 it rewrites only rX/cY and keeps the rest of the text unchanged.
 
+It also validates each Tag == Comment pair against input/VARIABLE.csv.
+If the tag/comment pair does not exist exactly in VARIABLE.csv, it keeps the text and
+adds a marker before == as: Tag **FAULT** == Comment.
+
 A corrected file is written to output/update<name>.csv.
 
 Examples:

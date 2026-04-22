@@ -21,6 +21,9 @@ _STATUS_TOKEN_RE = re.compile(
     r"(Status_v(\d+)_h(\d+)_r)(\d+)(_c)(\d+)(_.+)",
     re.IGNORECASE,
 )
+_TAG_COMMENT_PAIR_RE = re.compile(
+    r"^(?P<prefix>.*?::\s*)?(?P<tag>[^=|]+?)\s*(?P<fault>\*\*FAULT\*\*\s*)?==\s*(?P<comment>.*)$"
+)
 _WIN_INVALID_CHARS = re.compile(r'[<>:"/\\|?*]')
 
 
@@ -262,15 +265,50 @@ def process_eqparam_tabviewr(
     return sheets
 
 
-def fix_status_locations_in_output_csv(input_path: Path, output_path: Path) -> Tuple[int, int]:
+def _mark_fault_for_invalid_tag_comment(
+    cell_text: str, tag_to_comment: Dict[str, str]
+) -> Tuple[str, int]:
+    parts = cell_text.split("||")
+    updated_parts: List[str] = []
+    faults_added = 0
+
+    for part in parts:
+        piece = part
+        m = _TAG_COMMENT_PAIR_RE.match(piece)
+        if not m:
+            updated_parts.append(piece)
+            continue
+
+        tag = m.group("tag").strip()
+        comment = m.group("comment").strip()
+        has_fault = m.group("fault") is not None
+        expected_comment = tag_to_comment.get(tag)
+        is_valid = expected_comment is not None and expected_comment.strip() == comment
+
+        if is_valid or has_fault:
+            updated_parts.append(piece)
+            continue
+
+        prefix = m.group("prefix") or ""
+        updated_parts.append(f"{prefix}{tag} **FAULT** == {comment}")
+        faults_added += 1
+
+    return "||".join(updated_parts), faults_added
+
+
+def fix_status_locations_in_output_csv(
+    input_path: Path, output_path: Path, variable_path: Optional[Path] = None
+) -> Tuple[int, int, int]:
     """
     Rewrite embedded Status_v..._rX_cY_... tokens in each cell so r/c match the
     cell's 1-based row/column position in the CSV.
 
-    Returns (checked_cells, updated_tokens).
+    Returns (checked_cells, updated_tokens, fault_pairs).
     """
     if not input_path.is_file():
         raise EqparamProcessingError(f"Missing file: {input_path}")
+    var_path = variable_path if variable_path is not None else input_path.parent / "VARIABLE.csv"
+    tag_to_comment = _load_tag_comment_map(var_path)
 
     last_err: Exception | None = None
     df: Optional[pd.DataFrame] = None
@@ -289,10 +327,11 @@ def fix_status_locations_in_output_csv(input_path: Path, output_path: Path) -> T
     if df.empty:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output_path, index=False, header=False, encoding="utf-8")
-        return 0, 0
+        return 0, 0, 0
 
     checked_cells = 0
     updated_tokens = 0
+    fault_pairs = 0
 
     for row_index in range(len(df.index)):
         for col_index in range(len(df.columns)):
@@ -314,9 +353,11 @@ def fix_status_locations_in_output_csv(input_path: Path, output_path: Path) -> T
                 return f"{match.group(1)}{actual_r}{match.group(5)}{actual_c}{match.group(7)}"
 
             rewritten = _STATUS_TOKEN_RE.sub(_replace, value)
+            rewritten, faults_added = _mark_fault_for_invalid_tag_comment(rewritten, tag_to_comment)
+            fault_pairs += faults_added
             if rewritten != value:
                 df.iat[row_index, col_index] = rewritten
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, index=False, header=False, encoding="utf-8")
-    return checked_cells, updated_tokens
+    return checked_cells, updated_tokens, fault_pairs
