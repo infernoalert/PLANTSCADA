@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -25,6 +27,9 @@ _TAG_COMMENT_PAIR_RE = re.compile(
     r"^(?P<prefix>.*?::\s*)?(?P<tag>[^=|]+?)\s*(?P<fault>\*\*FAULT\*\*\s*)?==\s*(?P<comment>.*)$"
 )
 _WIN_INVALID_CHARS = re.compile(r'[<>:"/\\|?*]')
+_FAULT_MARKER = "**FAULT**"
+_TABVIEWR_SEP = " :: "
+_TAG_VALUE_SEP = " == "
 
 
 class EqparamProcessingError(Exception):
@@ -361,3 +366,168 @@ def fix_status_locations_in_output_csv(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, index=False, header=False, encoding="utf-8")
     return checked_cells, updated_tokens, fault_pairs
+
+
+def _read_first_csv_line_as_row(path: Path) -> List[str]:
+    """Read the first physical line of a CSV file and parse it as one row (for EQPARAM header)."""
+    if not path.is_file():
+        raise EqparamProcessingError(f"Missing file: {path}")
+    last_err: Exception | None = None
+    first_line: str | None = None
+    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            with path.open(encoding=encoding, newline="") as f:
+                first_line = f.readline()
+            break
+        except UnicodeDecodeError as exc:
+            last_err = exc
+    if first_line is None:
+        raise EqparamProcessingError(
+            f"Could not decode header file (tried utf-8-sig, utf-8, latin-1): {last_err}"
+        )
+    if not first_line.strip():
+        raise EqparamProcessingError(f"Empty or whitespace-only file: {path}")
+    reader = csv.reader(io.StringIO(first_line))
+    try:
+        row = next(reader)
+    except StopIteration as exc:
+        raise EqparamProcessingError(f"Could not read CSV header from {path}") from exc
+    return [str(c).strip() for c in row]
+
+
+def _read_grid_dataframe(path: Path) -> pd.DataFrame:
+    last_err: Exception | None = None
+    df: pd.DataFrame | None = None
+    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            df = pd.read_csv(path, encoding=encoding, header=None, dtype=str, keep_default_na=False)
+            break
+        except UnicodeDecodeError as exc:
+            last_err = exc
+        except pd.errors.ParserError as exc:
+            raise EqparamProcessingError(f"Invalid CSV: {exc}") from exc
+    if df is None:
+        raise EqparamProcessingError(
+            f"Could not decode CSV (tried utf-8-sig, utf-8, latin-1): {last_err}"
+        )
+    return df
+
+
+def _parse_tabviewr_fragment_to_fields(fragment: str) -> Tuple[str, str, str, str, str, str, str]:
+    """
+    Inverse of TabViewr cell text: ``Name :: Value`` or ``Name :: Value == resolved``.
+
+    Returns ``(cluster, equipment, name, value, is_tag, comment, project)`` with cluster,
+    equipment, project always empty (caller maps to header order).
+    """
+    piece = fragment.strip()
+    if not piece:
+        raise EqparamProcessingError("Internal error: empty fragment")
+    if _TABVIEWR_SEP not in piece:
+        raise EqparamProcessingError(
+            f"Expected {_TABVIEWR_SEP!r} in cell text: {piece[:120]!r}"
+            + ("…" if len(piece) > 120 else "")
+        )
+    name, remainder = piece.split(_TABVIEWR_SEP, 1)
+    name = name.strip()
+    remainder = remainder.strip()
+    sep_idx = remainder.find(_TAG_VALUE_SEP)
+    if sep_idx != -1:
+        value = remainder[:sep_idx].strip()
+        comment = remainder[sep_idx + len(_TAG_VALUE_SEP) :].strip()
+        is_tag = "TRUE"
+    else:
+        value = remainder
+        comment = ""
+        is_tag = "FALSE"
+    return "", "", name, value, is_tag, comment, ""
+
+
+def _equip_row_from_header(
+    header: List[str],
+    *,
+    cluster: str,
+    equipment: str,
+    name: str,
+    value: str,
+    is_tag: str,
+    comment: str,
+    project: str,
+) -> List[str]:
+    """Map logical fields to one output row following ``header`` column names (case-insensitive)."""
+    logical: Dict[str, str] = {
+        "cluster": cluster,
+        "equipment": equipment,
+        "name": name,
+        "value": value,
+        "is tag": is_tag,
+        "comment": comment,
+        "project": project,
+    }
+    out: List[str] = []
+    for col in header:
+        key = str(col).strip().lower()
+        out.append(logical.get(key, ""))
+    return out
+
+
+def process_grid_to_equip_rows(
+    grid_path: Path,
+    eqparam_header_source: Path,
+) -> Tuple[List[str], List[List[str]]]:
+    """
+    Read a headerless grid (e.g. ``input/<stem>.csv``), convert TabViewr-style cell text
+    into EQPARAM-shaped rows. Header columns are taken from the first line of
+    ``eqparam_header_source`` (read-only).
+
+    - Any cell containing ``**FAULT**`` raises ``EqparamProcessingError`` (no output).
+    - ``||`` in a cell splits into multiple fragments → one row per fragment.
+    """
+    header = _read_first_csv_line_as_row(eqparam_header_source)
+    if not header:
+        raise EqparamProcessingError(f"No columns in header file: {eqparam_header_source}")
+
+    if not grid_path.is_file():
+        raise EqparamProcessingError(f"Missing file: {grid_path}")
+
+    df = _read_grid_dataframe(grid_path)
+    if df.empty:
+        return header, []
+
+    for ri in range(len(df.index)):
+        for ci in range(len(df.columns)):
+            raw = _cell_str(df.iat[ri, ci])
+            if not raw:
+                continue
+            if _FAULT_MARKER in raw:
+                raise EqparamProcessingError(
+                    "Input contains **FAULT** markers; fix the grid before Equip Create."
+                )
+
+    rows: List[List[str]] = []
+    for ri in range(len(df.index)):
+        for ci in range(len(df.columns)):
+            raw = _cell_str(df.iat[ri, ci])
+            if not raw:
+                continue
+            for segment in raw.split("||"):
+                seg = segment.strip()
+                if not seg:
+                    continue
+                cluster, equipment, name, value, is_tag, comment, project = _parse_tabviewr_fragment_to_fields(
+                    seg
+                )
+                rows.append(
+                    _equip_row_from_header(
+                        header,
+                        cluster=cluster,
+                        equipment=equipment,
+                        name=name,
+                        value=value,
+                        is_tag=is_tag,
+                        comment=comment,
+                        project=project,
+                    )
+                )
+
+    return header, rows

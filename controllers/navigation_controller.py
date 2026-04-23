@@ -30,6 +30,11 @@ def handle_update_location_readme(view: AppView) -> None:
     open_content(view, "updatelocation.txt")
 
 
+def handle_equip_create_readme(view: AppView) -> None:
+    view.set_status("Readme…")
+    open_content(view, "equipcreate.txt")
+
+
 def _open_readme_window(parent: tk.Misc, body: str, title: str = "Readme") -> None:
     win = tk.Toplevel(parent)
     win.title(title)

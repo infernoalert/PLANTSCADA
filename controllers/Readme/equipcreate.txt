@@ -1,0 +1,25 @@
+Equip Create
+
+Use row 4 to enter a file stem (for example: safety), then click Equip Create.
+
+The tool reads input/<name>.csv (a headerless grid, e.g. input/safety.csv). Only read
+operations use the input folder; nothing there is modified.
+
+Each non-empty cell is expected to look like TabViewr output:
+  Name :: Value
+or (tag rows):
+  Name :: Value == Comment
+
+If a cell contains several pieces joined with ||, each piece becomes one row in the
+output file.
+
+If any cell still contains **FAULT** (from updateLocation when VARIABLE.csv did not
+match a tag/comment pair), Equip Create stops and does not write an output file. Fix
+the grid first.
+
+The output is written only under output/ as output/outputEquipImport<name>.csv (for
+example outputEquipImportsafety.csv). The column header is copied from the first line
+of input/Eqparam.csv (read-only); if that file is missing, input/EQPARAM.csv is used for
+the header only.
+
+Cluster, Equipment, and Project are left empty in each generated row.
