@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import processor
+from services.paths import input_dir, output_dir
 from ui import AppView
 
-_INPUT_DIR = Path(__file__).resolve().parent.parent / "input"
-_OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
+_INPUT_DIR = input_dir()
+_OUTPUT_DIR = output_dir()
 _VARIABLE = _INPUT_DIR / "VARIABLE.csv"
 
 

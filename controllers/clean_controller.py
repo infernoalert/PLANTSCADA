@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import processor
 from services.csv_output_service import write_csv_to_output
+from services.paths import input_dir
 from ui import AppView
 
-_ROOT = Path(__file__).resolve().parent.parent
-EQPARAM_CSV = _ROOT / "input" / "EQPARAM.csv"
+EQPARAM_CSV = input_dir() / "EQPARAM.csv"
 
 
 def handle(search_text: str, view: AppView) -> None:

@@ -33,3 +33,38 @@ This application intentionally avoids heavy frameworks to remain fast, maintaina
 2. Activate it: .\venv\Scripts\activate
 3. Install dependencies: pip install -r requirements.txt
 4. Run the app: python main.py
+
+## Windows Build and Installer
+
+### Prerequisites
+- Python 3.12+
+- PowerShell
+- Inno Setup 6 (required only for `setup.exe`): [https://jrsoftware.org/isinfo.php](https://jrsoftware.org/isinfo.php)
+
+### PowerShell Commands (copy/paste)
+Run from the project root:
+
+```powershell
+# 1) Create and activate virtual environment
+python -m venv venv
+.\venv\Scripts\activate
+
+# 2) Install dependencies (includes pyinstaller)
+python -m pip install -r requirements.txt
+
+# 3) Build portable app folder
+powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
+
+# 4) Build installer setup.exe (requires Inno Setup 6 installed)
+powershell -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1
+```
+
+### Outputs
+- Portable app folder: `dist/PLANTSCADA/`
+- App executable: `dist/PLANTSCADA/PLANTSCADA.exe`
+- Installer executable: `installer-dist/PLANTSCADA-Setup.exe`
+
+### Notes
+- Runtime folders `input/` and `output/` are auto-created at app startup.
+- `controllers/Readme/*.txt` are bundled in the build output.
+- If installer build fails with `ISCC.exe not found`, install Inno Setup 6 first.

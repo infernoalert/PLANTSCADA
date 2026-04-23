@@ -4,19 +4,19 @@ from pathlib import Path
 
 import processor
 from services.csv_output_service import write_csv_to_output
+from services.paths import input_dir
 from ui import AppView
 
-_ROOT = Path(__file__).resolve().parent.parent
-_INPUT_DIR = _ROOT / "input"
+_INPUT_DIR = input_dir()
 
 
 def _eqparam_header_source() -> Path:
     """Prefer ``input/Eqparam.csv``; fall back to ``input/EQPARAM.csv`` for the header row only."""
     for name in ("Eqparam.csv", "EQPARAM.csv"):
-        p = _ROOT / "input" / name
+        p = input_dir() / name
         if p.is_file():
             return p
-    return _ROOT / "input" / "Eqparam.csv"
+    return input_dir() / "Eqparam.csv"
 
 
 def handle(file_stem: str, view: AppView) -> None:

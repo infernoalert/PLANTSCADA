@@ -12,10 +12,12 @@ from controllers import (
     tab_viewr_controller,
     update_location_controller,
 )
+from services.paths import ensure_runtime_dirs
 from ui import AppView
 
 
 def main() -> None:
+    ensure_runtime_dirs()
     view = AppView()
     view.set_on_clean(lambda: clean_controller.handle(view.get_search_string(), view))
     view.set_on_readme_click(lambda: navigation_controller.handle_readme(view))

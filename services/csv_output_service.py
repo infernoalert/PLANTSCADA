@@ -6,14 +6,14 @@ import csv
 from pathlib import Path
 from typing import Iterable, Sequence
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_OUTPUT_DIR = _PROJECT_ROOT / "output"
+from services.paths import output_dir as runtime_output_dir
 
 
 def output_dir() -> Path:
     """Ensure output/ exists and return its path."""
-    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    return _OUTPUT_DIR
+    out = runtime_output_dir()
+    out.mkdir(parents=True, exist_ok=True)
+    return out
 
 
 def write_csv_to_output(

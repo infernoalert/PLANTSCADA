@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-_CONTROLLERS_DIR = Path(__file__).resolve().parent
-_README_DIR = _CONTROLLERS_DIR / "Readme"
+from services.paths import readme_dir
 
 
 def load_asset(filename: str) -> str:
-    path = _README_DIR / filename
+    path = readme_dir() / filename
     try:
         return path.read_text(encoding="utf-8")
     except OSError:

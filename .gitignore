@@ -9,3 +9,7 @@ __pycache__/
 # Ignore massive SCADA data sets
 input/
 output/
+build/
+dist/
+installer-dist/
+*.spec
