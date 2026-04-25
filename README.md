@@ -34,12 +34,13 @@ This application intentionally avoids heavy frameworks to remain fast, maintaina
 3. Install dependencies: pip install -r requirements.txt
 4. Run the app: python main.py
 
-## Windows Build and Installer
+## Windows Build and Single Setup.exe
+
+The release flow uses **PyInstaller only** (no Inno Setup). One command builds the portable app folder and **`dist/PLANTSCADA-Setup.exe`**, which asks for install location, input folder, and output folder, then unpacks the app and writes `paths.json` next to `PLANTSCADA.exe`.
 
 ### Prerequisites
 - Python 3.12+
 - PowerShell
-- Inno Setup 6 (required only for `setup.exe`): [https://jrsoftware.org/isinfo.php](https://jrsoftware.org/isinfo.php)
 
 ### PowerShell Commands (copy/paste)
 Run from the project root:
@@ -52,19 +53,20 @@ python -m venv venv
 # 2) Install dependencies (includes pyinstaller)
 python -m pip install -r requirements.txt
 
-# 3) Build portable app folder
+# 3) Build portable app + single-file installer
 powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
-
-# 4) Build installer setup.exe (requires Inno Setup 6 installed)
-powershell -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1
 ```
 
 ### Outputs
 - Portable app folder: `dist/PLANTSCADA/`
 - App executable: `dist/PLANTSCADA/PLANTSCADA.exe`
-- Installer executable: `installer-dist/PLANTSCADA-Setup.exe`
+- **Single installer:** `dist/PLANTSCADA-Setup.exe` (copy this to other PCs)
+
+### Installed layout
+- After running `PLANTSCADA-Setup.exe`, the chosen **input** and **output** folders are stored in `paths.json` beside `PLANTSCADA.exe`. The app creates those folders if they are missing.
+- If `paths.json` is absent, the app uses `input/` and `output/` next to the executable (same as portable run from `dist/PLANTSCADA`).
 
 ### Notes
-- Runtime folders `input/` and `output/` are auto-created at app startup.
-- `controllers/Readme/*.txt` are bundled in the build output.
-- If installer build fails with `ISCC.exe not found`, install Inno Setup 6 first.
+- `controllers/Readme/*.txt` are bundled in the portable build.
+- `PLANTSCADA-Setup.exe` is large because it embeds the zipped portable folder.
+- Unsigned installers may trigger Windows SmartScreen; users can choose **More info** then **Run anyway** if needed.

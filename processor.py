@@ -24,12 +24,14 @@ _STATUS_TOKEN_RE = re.compile(
     re.IGNORECASE,
 )
 _TAG_COMMENT_PAIR_RE = re.compile(
-    r"^(?P<prefix>.*?::\s*)?(?P<tag>[^=|]+?)\s*(?P<fault>\*\*FAULT\*\*\s*)?==\s*(?P<comment>.*)$"
+    r"^(?P<prefix>.*?::\s*)?(?P<tag>[^=!|]+?)\s*(?P<fault>\*\*FAULT\*\*\s*)?(?P<sep>==|!!)\s*(?P<comment>.*)$"
 )
+_TAG_VALUE_OR_ALARM_RE = re.compile(r"^(?P<value>.*?)\s*(?P<sep>==|!!)\s*(?P<comment>.*)$")
 _WIN_INVALID_CHARS = re.compile(r'[<>:"/\\|?*]')
 _FAULT_MARKER = "**FAULT**"
 _TABVIEWR_SEP = " :: "
 _TAG_VALUE_SEP = " == "
+_TAG_ALARM_SEP = " !! "
 
 
 class EqparamProcessingError(Exception):
@@ -105,6 +107,29 @@ def _load_tag_comment_map(variable_path: Path) -> Dict[str, str]:
     return out
 
 
+def _load_alarm_tag_comment_map(advalm_path: Path) -> Dict[str, str]:
+    """First Alarm Tag wins. Returns empty dict if ADVALM.csv is absent."""
+    if not advalm_path.is_file():
+        return {}
+    df = _read_csv_with_encodings(advalm_path)
+    if df.empty:
+        return {}
+    tag_col = _resolve_column_ci(df.columns, "Alarm Tag")
+    comment_col = _resolve_column_ci(df.columns, "Comment")
+    out: Dict[str, str] = {}
+    for _, row in df.iterrows():
+        tag = _cell_str(row[tag_col]).strip()
+        if not tag or tag in out:
+            continue
+        out[tag] = _cell_str(row[comment_col]).strip()
+    return out
+
+
+def load_alarm_tag_comment_map(advalm_path: Path) -> Dict[str, str]:
+    """Public wrapper used by controllers to load ADVALM alarm comments."""
+    return _load_alarm_tag_comment_map(advalm_path)
+
+
 def _tabviewr_status_cell_text(
     row: pd.Series,
     *,
@@ -112,14 +137,20 @@ def _tabviewr_status_cell_text(
     value_col: str,
     is_tag_col: str,
     tag_to_comment: Dict[str, str],
+    alarm_tag_to_comment: Dict[str, str],
 ) -> str:
     name = _cell_str(row[name_col]).strip()
     value = _cell_str(row[value_col]).strip()
     if _parse_is_tag(row[is_tag_col]):
         if not value:
             return ""
-        resolved = tag_to_comment.get(value, value)
-        return f"{name} :: {value} == {resolved}"
+        variable_comment = tag_to_comment.get(value, "").strip()
+        if variable_comment:
+            return f"{name} :: {value} == {variable_comment}"
+        alarm_comment = alarm_tag_to_comment.get(value, "").strip()
+        if alarm_comment:
+            return f"{name} :: {value} !! {alarm_comment}"
+        return f"{name} :: {value} == {value}"
     return f"{name} :: {value}" if (name or value) else ""
 
 
@@ -173,6 +204,7 @@ def process_eqparam_tabviewr(
     path: Path,
     needle: str,
     variable_path: Optional[Path] = None,
+    alarm_tag_to_comment: Optional[Dict[str, str]] = None,
 ) -> List[Tuple[str, List[List[str]]]]:
     """
     Filter EQPARAM rows by Equipment substring; for each (v, h) with Tab_v{v}_h{h}_Title
@@ -203,6 +235,7 @@ def process_eqparam_tabviewr(
 
     var_path = variable_path if variable_path is not None else path.parent / "VARIABLE.csv"
     tag_to_comment = _load_tag_comment_map(var_path)
+    alarm_map = alarm_tag_to_comment or {}
 
     eq_mask = df[equip_col].astype(str).str.contains(needle, case=False, na=False, regex=False)
     filtered = df.loc[eq_mask]
@@ -234,6 +267,7 @@ def process_eqparam_tabviewr(
                 value_col=value_col,
                 is_tag_col=is_tag_col,
                 tag_to_comment=tag_to_comment,
+                alarm_tag_to_comment=alarm_map,
             )
             cell_lists[(v, h)][(r, c)].append(text)
 
@@ -287,6 +321,10 @@ def _mark_fault_for_invalid_tag_comment(
         tag = m.group("tag").strip()
         comment = m.group("comment").strip()
         has_fault = m.group("fault") is not None
+        separator = m.group("sep")
+        if separator == "!!":
+            updated_parts.append(piece)
+            continue
         expected_comment = tag_to_comment.get(tag)
         is_valid = expected_comment is not None and expected_comment.strip() == comment
 
@@ -415,7 +453,8 @@ def _read_grid_dataframe(path: Path) -> pd.DataFrame:
 
 def _parse_tabviewr_fragment_to_fields(fragment: str) -> Tuple[str, str, str, str, str, str, str]:
     """
-    Inverse of TabViewr cell text: ``Name :: Value`` or ``Name :: Value == resolved``.
+    Inverse of TabViewr cell text: ``Name :: Value``, ``Name :: Value == resolved``,
+    or ``Name :: Value !! resolved``.
 
     Returns ``(cluster, equipment, name, value, is_tag, comment, project)`` with cluster,
     equipment, project always empty (caller maps to header order).
@@ -431,10 +470,10 @@ def _parse_tabviewr_fragment_to_fields(fragment: str) -> Tuple[str, str, str, st
     name, remainder = piece.split(_TABVIEWR_SEP, 1)
     name = name.strip()
     remainder = remainder.strip()
-    sep_idx = remainder.find(_TAG_VALUE_SEP)
-    if sep_idx != -1:
-        value = remainder[:sep_idx].strip()
-        comment = remainder[sep_idx + len(_TAG_VALUE_SEP) :].strip()
+    parsed = _TAG_VALUE_OR_ALARM_RE.match(remainder)
+    if parsed:
+        value = parsed.group("value").strip()
+        comment = parsed.group("comment").strip()
         is_tag = "TRUE"
     else:
         value = remainder

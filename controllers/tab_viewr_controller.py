@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import processor
+from controllers import alarm_controller
 from services.csv_output_service import write_csv_to_output
 from services.paths import input_dir
 from ui import AppView
@@ -18,7 +19,10 @@ def handle(search_text: str, view: AppView) -> None:
 
     view.set_status("Wait...")
     try:
-        sheets = processor.process_eqparam_tabviewr(_EQPARAM, search_text, _VARIABLE)
+        alarm_tag_to_comment = alarm_controller.load_alarm_tag_comment_map()
+        sheets = processor.process_eqparam_tabviewr(
+            _EQPARAM, search_text, _VARIABLE, alarm_tag_to_comment
+        )
         if not sheets:
             view.set_status("No Tab/Status sheets to export")
             return
