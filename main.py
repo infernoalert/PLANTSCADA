@@ -9,6 +9,7 @@ from controllers import (
     clean_controller,
     equip_create_controller,
     navigation_controller,
+    search_variable_controller,
     tab_viewr_controller,
     update_location_controller,
 )
@@ -34,6 +35,12 @@ def main() -> None:
     )
     view.set_on_equip_create_readme_click(
         lambda: navigation_controller.handle_equip_create_readme(view)
+    )
+    view.set_on_search_variable(
+        lambda: search_variable_controller.handle(view.get_search_variable_group_string(), view)
+    )
+    view.set_on_search_variable_readme_click(
+        lambda: navigation_controller.handle_search_variable_readme(view)
     )
     view.run()
 

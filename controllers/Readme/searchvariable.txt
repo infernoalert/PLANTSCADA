@@ -1,0 +1,13 @@
+SearchVariable
+
+Use row 5: enter a group filter (substring), then click SearchVariable.
+
+Reads input/searchvar.csv (read-only) and input/VARIABLE.csv. Writes output/varsearchout.csv with the same grid shape (UTF-8, no header row).
+
+In each cell, the tool looks for tokens that start with the literal xx==. The text after == until the next || or end of the cell is the comment slice (leading/trailing spaces are stripped only for lookup). It must exactly match the Comment column in VARIABLE.csv for a candidate row.
+
+Among VARIABLE rows with that exact comment (file order), the first row whose Tag Name contains your group filter (case-insensitive) wins. Only the two characters xx are replaced by that row's Tag Name; == and the original comment slice in the cell are left unchanged.
+
+If searchvar.csv or VARIABLE.csv is missing, or the group filter is empty, you get an error and no output file.
+
+Example: group LU4107 and a cell prefix xx==System Fault — if a VARIABLE row has Comment "System Fault" and Tag Name contains LU4107, the cell becomes <TagName>==<same slice as after xx== in the input>.

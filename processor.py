@@ -20,7 +20,7 @@ _STATUS_CELL_RE = re.compile(
     re.IGNORECASE,
 )
 _STATUS_TOKEN_RE = re.compile(
-    r"(Status_v(\d+)_h(\d+)_r)(\d+)(_c)(\d+)(_.+)",
+    r"(Status_v(\d+)_h(\d+)_r)(\d+)(_c)(\d+)(_[^|]*?)(?=\|\||$)",
     re.IGNORECASE,
 )
 _TAG_COMMENT_PAIR_RE = re.compile(
@@ -449,6 +449,96 @@ def _read_grid_dataframe(path: Path) -> pd.DataFrame:
             f"Could not decode CSV (tried utf-8-sig, utf-8, latin-1): {last_err}"
         )
     return df
+
+
+_SEARCHVAR_XX_EQ = "xx=="
+
+
+def _load_variable_comment_to_tags(variable_path: Path) -> DefaultDict[str, List[str]]:
+    """Map exact Comment (stripped) -> Tag Names in VARIABLE.csv row order."""
+    if not variable_path.is_file():
+        raise EqparamProcessingError(f"Missing file: {variable_path}")
+    df = _read_csv_with_encodings(variable_path)
+    out: DefaultDict[str, List[str]] = defaultdict(list)
+    if df.empty:
+        return out
+    tag_col = _resolve_variable_tag_column(df.columns)
+    comment_col = _resolve_column_ci(df.columns, "Comment")
+    for _, row in df.iterrows():
+        tag = _cell_str(row[tag_col]).strip()
+        comment = _cell_str(row[comment_col]).strip()
+        if not comment or not tag:
+            continue
+        out[comment].append(tag)
+    return out
+
+
+def _substitute_searchvar_xx_tokens(
+    cell: str, comment_to_tags: DefaultDict[str, List[str]], group_needle_lower: str
+) -> str:
+    """
+    Replace each ``xx==<comment>`` span: ``xx`` becomes the first VARIABLE Tag Name
+    (same exact Comment) whose Tag Name contains ``group_needle_lower``; ``==`` and
+    the raw comment slice (up to ``||`` or end) stay unchanged.
+    """
+    if _SEARCHVAR_XX_EQ not in cell:
+        return cell
+    parts: List[str] = []
+    pos = 0
+    while pos < len(cell):
+        idx = cell.find(_SEARCHVAR_XX_EQ, pos)
+        if idx == -1:
+            parts.append(cell[pos:])
+            break
+        parts.append(cell[pos:idx])
+        rest_start = idx + len(_SEARCHVAR_XX_EQ)
+        rest = cell[rest_start:]
+        bar = rest.find("||")
+        raw_comment = rest if bar == -1 else rest[:bar]
+        comment_key = raw_comment.strip()
+        end_sub = rest_start + len(raw_comment)
+        token = cell[idx:end_sub]
+        candidates = comment_to_tags.get(comment_key, [])
+        chosen = ""
+        for tag in candidates:
+            if group_needle_lower in tag.lower():
+                chosen = tag
+                break
+        if chosen:
+            parts.append(chosen)
+            parts.append("==")
+            parts.append(raw_comment)
+        else:
+            parts.append(token)
+        pos = end_sub
+    return "".join(parts)
+
+
+def process_searchvar_substitution(
+    searchvar_path: Path, variable_path: Path, group_needle: str
+) -> List[List[str]]:
+    """
+    Read headerless ``searchvar`` grid, replace ``xx==`` tokens using VARIABLE.csv.
+    Input files are read only; returns data rows only (no header row).
+    """
+    if not searchvar_path.is_file():
+        raise EqparamProcessingError(f"Missing file: {searchvar_path}")
+    g = group_needle.strip()
+    if not g:
+        raise EqparamProcessingError("Group filter is empty.")
+    comment_to_tags = _load_variable_comment_to_tags(variable_path)
+    df = _read_grid_dataframe(searchvar_path)
+    if df.empty:
+        return []
+    gl = g.lower()
+    rows: List[List[str]] = []
+    for ri in range(len(df.index)):
+        row_out: List[str] = []
+        for ci in range(len(df.columns)):
+            raw = _cell_str(df.iat[ri, ci])
+            row_out.append(_substitute_searchvar_xx_tokens(raw, comment_to_tags, gl))
+        rows.append(row_out)
+    return rows
 
 
 def _parse_tabviewr_fragment_to_fields(fragment: str) -> Tuple[str, str, str, str, str, str, str]:
