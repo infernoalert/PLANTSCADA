@@ -15,6 +15,8 @@ from typing import DefaultDict, Dict, List, Optional, Tuple
 import pandas as pd
 
 _TAB_TITLE_RE = re.compile(r"^Tab_v(\d+)_h(\d+)_Title$", re.IGNORECASE)
+# SCADA exports often use Tab_v{v}_Title without _h{h}_ (implicit h=1).
+_TAB_TITLE_SHORT_RE = re.compile(r"^Tab_v(\d+)_Title$", re.IGNORECASE)
 _STATUS_CELL_RE = re.compile(
     r"^Status_v(\d+)_h(\d+)_r(\d+)_c(\d+)_(.+)$",
     re.IGNORECASE,
@@ -32,6 +34,8 @@ _FAULT_MARKER = "**FAULT**"
 _TABVIEWR_SEP = " :: "
 _TAG_VALUE_SEP = " == "
 _TAG_ALARM_SEP = " !! "
+# TabViewr export filename stem: needleSlug_v{v}_h{h}_titleSlug (total length capped).
+_TABVIEWR_OUTPUT_STEM_MAX_LEN = 120
 
 
 class EqparamProcessingError(Exception):
@@ -46,7 +50,7 @@ def _read_csv_with_encodings(path: Path) -> pd.DataFrame:
     last_err: Exception | None = None
     for encoding in ("utf-8-sig", "utf-8", "latin-1"):
         try:
-            return pd.read_csv(path, encoding=encoding)
+            return pd.read_csv(path, encoding=encoding, low_memory=False)
         except UnicodeDecodeError as exc:
             last_err = exc
         except pd.errors.ParserError as exc:
@@ -165,11 +169,55 @@ def _cell_str(value: object) -> str:
     return str(value)
 
 
+def _collect_tab_titles_for_tabviewr(
+    filtered: pd.DataFrame, *, name_col: str, value_col: str
+) -> Dict[Tuple[int, int], str]:
+    """
+    Build ``(v, h) -> sheet title text`` from Tab rows.
+
+    Prefer ``Tab_v{v}_h{h}_Title``; fill ``Tab_v{v}_Title`` as ``(v, 1)`` only when that
+    key is still missing so explicit ``Tab_v1_h1_Title`` wins over ``Tab_v1_Title``.
+    """
+    titles: Dict[Tuple[int, int], str] = {}
+    for _, row in filtered.iterrows():
+        name = str(row[name_col]).strip()
+        m = _TAB_TITLE_RE.match(name)
+        if m:
+            v, h = int(m.group(1)), int(m.group(2))
+            titles[(v, h)] = _cell_str(row[value_col])
+    for _, row in filtered.iterrows():
+        name = str(row[name_col]).strip()
+        m = _TAB_TITLE_SHORT_RE.match(name)
+        if m:
+            v = int(m.group(1))
+            key = (v, 1)
+            if key not in titles:
+                titles[key] = _cell_str(row[value_col])
+    return titles
+
+
+def _equipment_leaf_segment(equipment: str) -> str:
+    """Last dot-separated segment of Equipment (the leaf tag); empty if missing."""
+    s = _cell_str(equipment).strip()
+    if not s:
+        return ""
+    parts = s.split(".")
+    return parts[-1].strip()
+
+
+def _equipment_contains_needle(equip_series: pd.Series, needle: str) -> pd.Series:
+    """True where ``Equipment`` contains ``needle`` as substring (case-insensitive, literal)."""
+    n = needle.strip()
+    if not n:
+        return pd.Series(False, index=equip_series.index, dtype=bool)
+    return equip_series.astype(str).str.contains(n, case=False, na=False, regex=False)
+
+
 def process_eqparam_equipment_filter(path: Path, needle: str) -> Tuple[List[str], List[List[str]]]:
     """
-    Read EQPARAM-style CSV. Output **only** rows whose ``Equipment`` column contains
-    ``needle`` (substring, case-insensitive). All original columns are preserved; no
-    deduplication.
+    Read EQPARAM-style CSV. Output **only** rows whose ``Equipment`` column **contains**
+    ``needle`` as a substring (case-insensitive, not a regex). All original columns are
+    preserved; no deduplication.
     """
     needle = needle.strip()
     if not needle:
@@ -183,7 +231,7 @@ def process_eqparam_equipment_filter(path: Path, needle: str) -> Tuple[List[str]
         return [str(c) for c in df.columns.tolist()], []
 
     equip_col = _resolve_column_ci(df.columns, "Equipment")
-    mask = df[equip_col].astype(str).str.contains(needle, case=False, na=False, regex=False)
+    mask = _equipment_contains_needle(df[equip_col], needle)
     out = df.loc[mask]
 
     header = [str(c) for c in out.columns.tolist()]
@@ -191,13 +239,43 @@ def process_eqparam_equipment_filter(path: Path, needle: str) -> Tuple[List[str]
     return header, rows
 
 
-def _slug_sheet_stem(raw_title: str, v: int, h: int) -> str:
-    s = _cell_str(raw_title).strip().lower().replace(" ", "_")
+def _slug_filename_component(raw: str, fallback: str) -> str:
+    """Lowercase filesystem-safe slug fragment (no length cap)."""
+    s = _cell_str(raw).strip().lower().replace(" ", "_")
     s = _WIN_INVALID_CHARS.sub("", s)
     s = re.sub(r"_+", "_", s).strip("._")
-    if not s:
-        s = f"sheet_v{v}_h{h}"
-    return s[:80]
+    return s if s else fallback
+
+
+def _truncate_tabviewr_export_stem(
+    needle_slug: str,
+    v: int,
+    h: int,
+    title_slug: str,
+    *,
+    max_len: int = _TABVIEWR_OUTPUT_STEM_MAX_LEN,
+) -> str:
+    """
+    Build ``prefixSlug_v{v}_h{h}_titleSlug`` (prefix is Equipment leaf slug for TabViewr),
+    truncating title first then prefix so ``_v{v}_h{h}`` stays visible.
+    """
+    coord = f"v{v}_h{h}"
+    prefix = f"{needle_slug}_{coord}_"
+    full = f"{prefix}{title_slug}"
+    if len(full) <= max_len:
+        return full
+    budget_title = max_len - len(prefix)
+    if budget_title >= 1:
+        return prefix + title_slug[:budget_title]
+    # Extremely long needle: shrink needle_slug until prefix fits, then add title.
+    ns = needle_slug
+    while len(ns) > 1 and len(f"{ns}_{coord}_") > max_len:
+        ns = ns[:-1]
+    prefix2 = f"{ns}_{coord}_"
+    budget2 = max_len - len(prefix2)
+    if budget2 >= 1:
+        return prefix2 + title_slug[:budget2]
+    return prefix2.rstrip("_")[:max_len]
 
 
 def process_eqparam_tabviewr(
@@ -207,9 +285,13 @@ def process_eqparam_tabviewr(
     alarm_tag_to_comment: Optional[Dict[str, str]] = None,
 ) -> List[Tuple[str, List[List[str]]]]:
     """
-    Filter EQPARAM rows by Equipment substring; for each (v, h) with Tab_v{v}_h{h}_Title
-    (sheet name from Value) and Status_v{v}_h{h}_r*c* cells, build a dense grid. Multiple
-    values for the same (r, c) are joined with ``||``.
+    Filter EQPARAM rows where ``Equipment`` **contains** the search text (substring,
+    case-insensitive). Rows are grouped by **distinct** ``Equipment`` values so assets with
+    different leaf tags (e.g. ``PU4107`` vs ``PU4107_LT001``) produce **separate** CSVs,
+    named with each row group's **leaf** slug: ``leafSlug_v{v}_h{h}_titleSlug``.
+
+    For each (v, h) with Tab_v{v}_h{h}_Title and Status_v{v}_h{h}_r*c* cells, build a dense
+    grid. Multiple values for the same (r, c) are joined with ``||``.
 
     Status cell text: if ``Is Tag`` is true, output ``Name :: Value == resolved`` where
     ``resolved`` is VARIABLE.csv ``Comment`` for ``Value`` as Tag Name (else ``Value``);
@@ -237,69 +319,80 @@ def process_eqparam_tabviewr(
     tag_to_comment = _load_tag_comment_map(var_path)
     alarm_map = alarm_tag_to_comment or {}
 
-    eq_mask = df[equip_col].astype(str).str.contains(needle, case=False, na=False, regex=False)
-    filtered = df.loc[eq_mask]
-    if filtered.empty:
+    eq_mask = _equipment_contains_needle(df[equip_col], needle)
+    filtered_all = df.loc[eq_mask]
+    if filtered_all.empty:
         return []
-
-    titles: Dict[Tuple[int, int], str] = {}
-    for _, row in filtered.iterrows():
-        name = str(row[name_col]).strip()
-        m = _TAB_TITLE_RE.match(name)
-        if m:
-            v, h = int(m.group(1)), int(m.group(2))
-            key = (v, h)
-            if key not in titles:
-                titles[key] = _cell_str(row[value_col])
-
-    cell_lists: DefaultDict[Tuple[int, int], DefaultDict[Tuple[int, int], List[str]]] = defaultdict(
-        lambda: defaultdict(list)
-    )
-    for _, row in filtered.iterrows():
-        name = str(row[name_col]).strip()
-        m = _STATUS_CELL_RE.match(name)
-        if m:
-            v, h = int(m.group(1)), int(m.group(2))
-            r, c = int(m.group(3)), int(m.group(4))
-            text = _tabviewr_status_cell_text(
-                row,
-                name_col=name_col,
-                value_col=value_col,
-                is_tag_col=is_tag_col,
-                tag_to_comment=tag_to_comment,
-                alarm_tag_to_comment=alarm_map,
-            )
-            cell_lists[(v, h)][(r, c)].append(text)
 
     sheets: List[Tuple[str, List[List[str]]]] = []
     used_stems: set[str] = set()
 
-    for (v, h), grid in sorted(cell_lists.items()):
-        if not grid:
-            continue
-        if (v, h) not in titles:
-            continue
+    for _, filtered in filtered_all.groupby(equip_col, sort=False):
+        equip_slug = _slug_filename_component(
+            _equipment_leaf_segment(_cell_str(filtered[equip_col].iloc[0])),
+            "eq",
+        )
 
-        base_stem = _slug_sheet_stem(titles[(v, h)], v, h)
-        stem = base_stem
-        if stem in used_stems:
-            stem = f"{base_stem}_v{v}_h{h}"[:80]
-        used_stems.add(stem)
+        titles = _collect_tab_titles_for_tabviewr(filtered, name_col=name_col, value_col=value_col)
 
-        rs = [rc[0] for rc in grid.keys()]
-        cs = [rc[1] for rc in grid.keys()]
-        min_r, max_r = min(rs), max(rs)
-        min_c, max_c = min(cs), max(cs)
+        cell_lists: DefaultDict[Tuple[int, int], DefaultDict[Tuple[int, int], List[str]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
+        for _, row in filtered.iterrows():
+            name = str(row[name_col]).strip()
+            m = _STATUS_CELL_RE.match(name)
+            if m:
+                v, h = int(m.group(1)), int(m.group(2))
+                r, c = int(m.group(3)), int(m.group(4))
+                text = _tabviewr_status_cell_text(
+                    row,
+                    name_col=name_col,
+                    value_col=value_col,
+                    is_tag_col=is_tag_col,
+                    tag_to_comment=tag_to_comment,
+                    alarm_tag_to_comment=alarm_map,
+                )
+                cell_lists[(v, h)][(r, c)].append(text)
 
-        rows: List[List[str]] = []
-        for r in range(min_r, max_r + 1):
-            row_out: List[str] = []
-            for c in range(min_c, max_c + 1):
-                parts = grid.get((r, c), [])
-                row_out.append("||".join(parts) if parts else "")
-            rows.append(row_out)
+        for (v, h), grid in sorted(cell_lists.items()):
+            if not grid:
+                continue
+            if (v, h) not in titles:
+                continue
 
-        sheets.append((stem, rows))
+            raw_tab_title = titles[(v, h)]
+            title_slug = _slug_filename_component(raw_tab_title, f"sheet_v{v}_h{h}")
+            stem = _truncate_tabviewr_export_stem(equip_slug, v, h, title_slug)
+            if stem in used_stems:
+                suffix_num = 2
+                while True:
+                    suf = f"_{suffix_num}"
+                    base = _truncate_tabviewr_export_stem(equip_slug, v, h, title_slug)
+                    candidate = (
+                        base[: _TABVIEWR_OUTPUT_STEM_MAX_LEN - len(suf)] + suf
+                        if len(base) + len(suf) > _TABVIEWR_OUTPUT_STEM_MAX_LEN
+                        else base + suf
+                    )
+                    if candidate not in used_stems:
+                        stem = candidate
+                        break
+                    suffix_num += 1
+            used_stems.add(stem)
+
+            rs = [rc[0] for rc in grid.keys()]
+            cs = [rc[1] for rc in grid.keys()]
+            min_r, max_r = min(rs), max(rs)
+            min_c, max_c = min(cs), max(cs)
+
+            rows: List[List[str]] = []
+            for r in range(min_r, max_r + 1):
+                row_out: List[str] = []
+                for c in range(min_c, max_c + 1):
+                    parts = grid.get((r, c), [])
+                    row_out.append("||".join(parts) if parts else "")
+                rows.append(row_out)
+
+            sheets.append((stem, rows))
 
     return sheets
 

@@ -1,7 +1,7 @@
 Clean
 
 Reads input/EQPARAM.csv and writes output/cleanEqparam.csv with every row whose
-Equipment column contains your search text (case-insensitive). All columns from
-the source are kept for those rows; rows that do not match are not included.
+Equipment column contains your search text (substring, case-insensitive).
+All columns from the source are kept for those rows; rows that do not match are not included.
 
-Enter a tag such as LU4107 in the top search box, then click Clean.
+Enter a tag in the top search box, then click Clean.
