@@ -1,4 +1,14 @@
-﻿# SCADA CSV Processor App
+﻿# 1) Create virtual environment (once)
+python -m venv venv
+
+# 2) Activate it
+.\venv\Scripts\activate
+
+# 3) Install all dependencies from requirements.txt
+pip install -r requirements.txt
+# SCADA CSV Processor App
+
+Run the app: python main.py
 
 A lightweight, local desktop utility designed to parse, filter, and process very large CSV exports from SCADA systems without overwhelming system memory.
 
@@ -18,8 +28,6 @@ This application intentionally avoids heavy frameworks to remain fast, maintaina
 3. **main.py (Router)** — Wires `ui.py` to **controllers/** (one module per toolbar action).
 
 4. **services/** — Shared helpers (for example writing UTF-8 CSVs under `output/`).
-
-**Equip Create:** Row 4: reads **`input/<stem>.csv`** (headerless grid; input is never written), converts TabViewr-style cells to EQPARAM-shaped rows, writes **`output/outputEquipImport<stem>.csv`** only (header from `input/Eqparam.csv`). Stops if any cell contains `**FAULT**`.
 
 ## Folder Structure
 - /input/ - Place raw SCADA .csv files here. (Ignored by Git)

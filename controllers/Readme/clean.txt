@@ -1,7 +1,16 @@
 Clean
 
-Reads input/EQPARAM.csv and writes output/cleanEqparam.csv with every row whose
-Equipment column contains your search text (substring, case-insensitive).
-All columns from the source are kept for those rows; rows that do not match are not included.
+Reads input/EQPARAM.csv (required), input/VARIABLE.csv and input/DIGALM.csv (optional),
+filters each file by your search text, and writes one file: output/clean.csv.
+
+Column A (header "Table") on every row shows where that row came from:
+  EQPARAM     — from EQPARAM.csv (Equipment contains search text)
+  VARIABLE    — from VARIABLE.csv (Tag Name / Tagname contains search text)
+  DIGIALARM   — from DIGALM.csv (Alarm Tag contains search text)
+
+Remaining columns are the union of all source columns; cells are blank when a column
+does not exist for that source row.
+
+DIGALM.csv should include Alarm Tag and Comment columns (same style as ADVALM exports).
 
 Enter a tag in the top search box, then click Clean.

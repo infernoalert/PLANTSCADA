@@ -239,6 +239,98 @@ def process_eqparam_equipment_filter(path: Path, needle: str) -> Tuple[List[str]
     return header, rows
 
 
+_CLEAN_TABLE_COL = "Table"
+_CLEAN_LABEL_EQPARAM = "EQPARAM"
+_CLEAN_LABEL_VARIABLE = "VARIABLE"
+_CLEAN_LABEL_DIGIALARM = "DIGIALARM"
+
+
+def _filter_df_column_contains(df: pd.DataFrame, logical_col: str, needle: str) -> pd.DataFrame:
+    col = _resolve_column_ci(df.columns, logical_col)
+    return df.loc[_equipment_contains_needle(df[col], needle)]
+
+
+def _union_columns_ordered(sections: List[Tuple[str, List[str], List[List[str]]]]) -> List[str]:
+    union: List[str] = []
+    seen: set[str] = set()
+    for _, cols, _ in sections:
+        for c in cols:
+            key = c.lower()
+            if key not in seen:
+                seen.add(key)
+                union.append(c)
+    return union
+
+
+def _section_row_to_union(
+    label: str, cols: List[str], data_row: List[str], union: List[str]
+) -> List[str]:
+    col_to_idx = {c.lower(): i for i, c in enumerate(cols)}
+    out = [label]
+    for uc in union:
+        idx = col_to_idx.get(uc.lower())
+        out.append(data_row[idx] if idx is not None else "")
+    return out
+
+
+def process_clean_combined(
+    eqparam_path: Path,
+    variable_path: Path,
+    digalm_path: Path,
+    needle: str,
+) -> Tuple[List[str], List[List[str]]]:
+    """
+    Merge filtered rows from EQPARAM, VARIABLE, and DIGALM into one table.
+
+    Column ``Table`` (column A) is ``EQPARAM``, ``VARIABLE``, or ``DIGIALARM``.
+    EQPARAM: ``Equipment`` contains ``needle``. VARIABLE: tag column contains ``needle``.
+    DIGALM: ``Alarm Tag`` contains ``needle``. Missing optional files yield no rows.
+    """
+    needle = needle.strip()
+    if not needle:
+        raise EqparamProcessingError("Search text is empty.")
+    if not eqparam_path.is_file():
+        raise EqparamProcessingError(f"Missing file: {eqparam_path}")
+
+    sections: List[Tuple[str, List[str], List[List[str]]]] = []
+
+    df_eq = _read_eqparam_csv(eqparam_path)
+    if not df_eq.empty:
+        df_eq = _filter_df_column_contains(df_eq, "Equipment", needle)
+    eq_cols = [str(c) for c in df_eq.columns.tolist()]
+    eq_rows = [[_cell_str(v) for v in row] for row in df_eq.to_numpy()]
+    sections.append((_CLEAN_LABEL_EQPARAM, eq_cols, eq_rows))
+
+    var_cols: List[str] = []
+    var_rows: List[List[str]] = []
+    if variable_path.is_file():
+        df_var = _read_csv_with_encodings(variable_path)
+        if not df_var.empty:
+            tag_col = _resolve_variable_tag_column(df_var.columns)
+            df_var = df_var.loc[_equipment_contains_needle(df_var[tag_col], needle)]
+        var_cols = [str(c) for c in df_var.columns.tolist()]
+        var_rows = [[_cell_str(v) for v in row] for row in df_var.to_numpy()]
+    sections.append((_CLEAN_LABEL_VARIABLE, var_cols, var_rows))
+
+    dig_cols: List[str] = []
+    dig_rows: List[List[str]] = []
+    if digalm_path.is_file():
+        df_dig = _read_csv_with_encodings(digalm_path)
+        if not df_dig.empty:
+            df_dig = _filter_df_column_contains(df_dig, "Alarm Tag", needle)
+        dig_cols = [str(c) for c in df_dig.columns.tolist()]
+        dig_rows = [[_cell_str(v) for v in row] for row in df_dig.to_numpy()]
+    sections.append((_CLEAN_LABEL_DIGIALARM, dig_cols, dig_rows))
+
+    union = _union_columns_ordered(sections)
+    header = [_CLEAN_TABLE_COL] + union
+    rows_out: List[List[str]] = []
+    for label, cols, data_rows in sections:
+        for data_row in data_rows:
+            rows_out.append(_section_row_to_union(label, cols, data_row, union))
+    return header, rows_out
+
+
 def _slug_filename_component(raw: str, fallback: str) -> str:
     """Lowercase filesystem-safe slug fragment (no length cap)."""
     s = _cell_str(raw).strip().lower().replace(" ", "_")
